@@ -1,0 +1,16 @@
+{
+  "E001": {
+    "employee_id": "E001",
+    "name": "Alice Smith",
+    "department": "Engineering",
+    "casual_leave_balance": 8,
+    "sick_leave_balance": 5
+  },
+  "E002": {
+    "employee_id": "E002",
+    "name": "Bob Jones",
+    "department": "Sales",
+    "casual_leave_balance": 12,
+    "sick_leave_balance": 10
+  }
+}
