@@ -62,8 +62,10 @@ def calculate_cost(usage) -> float:
     completion_cost = (usage.completion_tokens / 1_000_000) * 0.30
     return prompt_cost + completion_cost
 
-def ask_llm_stream(employee_id: str, message: str):
-    log_event("Started ask_llm_stream", employee_id=employee_id, user_message=message)
+def ask_llm_stream(employee_id: str, message: str, request_id: str = "N/A"):
+    import time
+    start_time = time.time()
+    log_event("Started ask_llm_stream", request_id=request_id, employee_id=employee_id, user_message=message)
     
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     history = get_history(employee_id)
@@ -78,16 +80,15 @@ def ask_llm_stream(employee_id: str, message: str):
             model=MODEL,
             messages=messages,
             tools=tools,
-            stream=False # We use False first to handle tool calls simply. Streaming tool calls requires more complex logic.
+            stream=False 
         )
         
         msg = response.choices[0].message
         
         if msg.tool_calls:
-            log_event("Tool call requested", employee_id=employee_id, tool_calls=[tc.function.name for tc in msg.tool_calls])
+            log_event("Tool call requested", request_id=request_id, employee_id=employee_id, tool_calls=[tc.function.name for tc in msg.tool_calls])
             
             tool_call_dict = msg.model_dump()
-            # Convert tool_calls to dict correctly
             tool_call_msg = {
                 "role": "assistant",
                 "content": msg.content,
@@ -113,7 +114,6 @@ def ask_llm_stream(employee_id: str, message: str):
                 messages.append(tool_response_msg)
                 add_tool_call_and_response(employee_id, tool_call_msg, tool_response_msg)
             
-            # Second call with tool responses
             stream_response = client.chat.completions.create(
                 model=MODEL,
                 messages=messages,
@@ -130,11 +130,11 @@ def ask_llm_stream(employee_id: str, message: str):
                 
                 if chunk.usage:
                     cost = calculate_cost(chunk.usage)
-                    log_event("LLM Completed", employee_id=employee_id, tokens=chunk.usage.total_tokens, cost=cost)
+                    latency = time.time() - start_time
+                    log_event("LLM Completed", request_id=request_id, employee_id=employee_id, tokens=chunk.usage.total_tokens, cost=cost, latency_sec=latency, status="success")
             
             add_message(employee_id, "assistant", full_content)
         else:
-            # No tool calls, standard stream response
             full_content = ""
             if msg.content:
                 full_content = msg.content
@@ -142,13 +142,87 @@ def ask_llm_stream(employee_id: str, message: str):
                 
             if response.usage:
                 cost = calculate_cost(response.usage)
-                log_event("LLM Completed", employee_id=employee_id, tokens=response.usage.total_tokens, cost=cost)
+                latency = time.time() - start_time
+                log_event("LLM Completed", request_id=request_id, employee_id=employee_id, tokens=response.usage.total_tokens, cost=cost, latency_sec=latency, status="success")
                 
             add_message(employee_id, "assistant", full_content)
             
     except Exception as e:
-        log_event("LLM Error", level=40, employee_id=employee_id, error=str(e))
+        latency = time.time() - start_time
+        log_event("LLM Error", request_id=request_id, level=40, employee_id=employee_id, error=str(e), latency_sec=latency, status="error")
         yield f"Error processing request: {e}"
+
+def ask_llm_sync(employee_id: str, message: str, request_id: str = "N/A"):
+    """Non-streaming version for comparison purposes."""
+    import time
+    start_time = time.time()
+    log_event("Started ask_llm_sync", request_id=request_id, employee_id=employee_id, user_message=message)
+    
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    history = get_history(employee_id)
+    messages.extend(history)
+    
+    user_msg = {"role": "user", "content": message}
+    messages.append(user_msg)
+    add_message(employee_id, "user", message)
+    
+    try:
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            tools=tools,
+            stream=False 
+        )
+        
+        msg = response.choices[0].message
+        
+        if msg.tool_calls:
+            tool_call_dict = msg.model_dump()
+            tool_call_msg = {
+                "role": "assistant",
+                "content": msg.content,
+                "tool_calls": tool_call_dict["tool_calls"]
+            }
+            messages.append(tool_call_msg)
+            
+            for tool_call in msg.tool_calls:
+                func_name = tool_call.function.name
+                
+                if func_name == "get_policy":
+                    result = load_policies()
+                elif func_name == "get_employee_record":
+                    result = get_employee_record(employee_id, employee_id)
+                else:
+                    result = f"Error: unknown tool {func_name}"
+                
+                tool_response_msg = {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": result
+                }
+                messages.append(tool_response_msg)
+                add_tool_call_and_response(employee_id, tool_call_msg, tool_response_msg)
+            
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=messages,
+                stream=False
+            )
+            msg = response.choices[0].message
+            
+        if response.usage:
+            cost = calculate_cost(response.usage)
+            latency = time.time() - start_time
+            log_event("LLM Completed", request_id=request_id, employee_id=employee_id, tokens=response.usage.total_tokens, cost=cost, latency_sec=latency, status="success")
+            
+        full_content = msg.content or ""
+        add_message(employee_id, "assistant", full_content)
+        return full_content
+            
+    except Exception as e:
+        latency = time.time() - start_time
+        log_event("LLM Error", request_id=request_id, level=40, employee_id=employee_id, error=str(e), latency_sec=latency, status="error")
+        return f"Error processing request: {e}"
 
 def classify_ticket(message: str):
     log_event("Started classify_ticket", user_message=message)

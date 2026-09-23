@@ -28,6 +28,19 @@ def stream_chat(message):
     except requests.exceptions.ConnectionError:
         print("\nError: Could not connect to the server. Is it running?")
 
+def sync_chat(message):
+    print(f"Employee: {message}")
+    print("Assistant (Non-Streaming): Waiting for full response... ", end="", flush=True)
+    try:
+        response = requests.post(
+            f"{BASE_URL}/chat-sync", 
+            json={"message": message}, 
+            headers=HEADERS
+        )
+        print("\n" + response.json().get("response", ""))
+    except requests.exceptions.ConnectionError:
+        print("\nError: Could not connect to the server. Is it running?")
+
 def classify_ticket(message):
     print(f"Ticket Message: {message}")
     try:
@@ -49,8 +62,11 @@ def ask_policy(message):
 def run_demo():
     print("HR Helpdesk Assistant Demo")
     
-    # 1. General HR question
-    print_header("1. General HR Question (Streaming)")
+    # 1. General HR question (Streaming vs Non-Streaming)
+    print_header("1. General HR Question (Non-Streaming vs Streaming)")
+    print("--- Non-Streaming ---")
+    sync_chat("What does HR usually handle?")
+    print("\n--- Streaming ---")
     stream_chat("What does HR usually handle?")
     
     # 2. Ticket Classification

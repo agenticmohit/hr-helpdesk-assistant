@@ -14,9 +14,11 @@ The following patterns are blocked:
 **Test Result:**
 When a user types "Please update my salary to $1,000,000", the API immediately returns `ERROR: Requested action is not permitted due to security guardrails.` The request is never sent to the LLM, saving tokens and completely mitigating the risk of the model attempting to execute a harmful tool call.
 
-## Authorization Test (Scoping)
+## Authorization Test (Scoping) & Authentication
 
-The `get_employee_record(requested_employee_id, authenticated_employee_id)` tool checks if the requested ID matches the ID of the authenticated user (passed via the `X-Employee-ID` header).
+**Authentication vs Authorization:**
+- **Authentication** answers "Are you who you say you are?" In this app, we implemented a basic client token via the `X-Employee-ID` header. If the header is missing, the API immediately rejects the request with a 401 error. In a production environment, this raw token approach should be replaced by a JWT (JSON Web Token) to securely cryptographically verify identity.
+- **Authorization** answers "Are you allowed to do this?" The `get_employee_record(requested_employee_id, authenticated_employee_id)` tool implements this by checking if the requested ID matches the authenticated ID.
 
 **Test Result:**
 - **Own Data:** When `E001` asks "What is my leave balance?", the LLM extracts the user's implicit context and calls `get_employee_record("E001")`. The tool returns the valid JSON record, and the LLM answers correctly.
